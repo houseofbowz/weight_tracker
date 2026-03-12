@@ -483,6 +483,9 @@
     .log-diff.down { color: var(--green); }
     .log-diff.same { color: var(--muted); }
 
+    .log-item { cursor: pointer; }
+    .log-item:active { background: var(--surface); }
+
     .delete-btn {
       background: none;
       border: none;
@@ -495,6 +498,121 @@
     }
 
     .delete-btn:active { color: var(--danger); }
+
+    /* ── Inline edit row ── */
+    .edit-row {
+      display: none;
+      padding: 12px 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-direction: column;
+      gap: 10px;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .edit-row.open { display: flex; }
+
+    .edit-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .edit-field label {
+      display: block;
+      font-size: 0.56rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .edit-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 1rem;
+      padding: 9px 12px;
+      outline: none;
+      -webkit-appearance: none;
+      color-scheme: dark;
+    }
+
+    .edit-input:focus { border-color: var(--accent); }
+
+    .edit-dt-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      padding: 9px 12px;
+      outline: none;
+      -webkit-appearance: none;
+      color-scheme: dark;
+      grid-column: span 2;
+    }
+
+    .edit-dt-input:focus { border-color: var(--accent); }
+
+    .edit-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .edit-delete-btn {
+      background: none;
+      border: none;
+      color: var(--danger);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.6rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 4px;
+      cursor: pointer;
+      margin-right: auto;
+      opacity: 0.7;
+    }
+
+    .edit-delete-btn:active { opacity: 1; }
+
+    .edit-cancel-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .edit-save-btn {
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      color: #0a0a0a;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 8px 16px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .edit-save-btn:active { background: var(--accent2); }
 
     .empty-state {
       text-align: center;
@@ -1006,8 +1124,11 @@ function renderList() {
       const cls  = diff > 0 ? 'up' : diff < 0 ? 'down' : 'same';
       diffHTML = `<div class="log-diff ${cls}">${sign}${diff}</div>`;
     }
+    const safeTs = e.ts.replace(/'/g, "\\'");
+    // datetime-local value needs seconds stripped if present
+    const dtVal = e.ts.slice(0, 16);
     return `
-      <li class="log-item">
+      <li class="log-item" onclick="toggleEdit('${safeTs}', event)">
         <div class="log-date-col">
           <div class="log-date">${fmtDate(e.ts)}</div>
           <div class="log-time">${fmtTime(e.ts)}</div>
@@ -1017,16 +1138,88 @@ function renderList() {
             <div class="log-weight-val">${e.weight}</div>
             ${diffHTML}
           </div>
-          <button class="delete-btn" onclick="deleteEntry('${e.ts.replace(/'/g,"\\'")}')">×</button>
+          <span class="edit-chevron" id="chevron-${safeTs}" style="color:var(--muted);font-size:0.7rem;padding-left:10px;transition:transform 0.2s;">›</span>
+        </div>
+      </li>
+      <li class="edit-row" id="edit-${safeTs}">
+        <div class="edit-fields">
+          <div class="edit-field">
+            <label>Weight (lbs)</label>
+            <input class="edit-input" id="ew-${safeTs}" type="number" step="0.1" min="50" max="600"
+              value="${e.weight}" inputmode="decimal" onclick="event.stopPropagation()" />
+          </div>
+          <div class="edit-field" style="grid-column:span 1">
+            <label>Date &amp; Time</label>
+            <input class="edit-input edit-dt-input" id="et-${safeTs}" type="datetime-local"
+              value="${dtVal}" onclick="event.stopPropagation()" style="grid-column:unset" />
+          </div>
+        </div>
+        <div class="edit-actions">
+          <button class="edit-delete-btn" onclick="event.stopPropagation(); deleteEntry('${safeTs}')">Delete entry</button>
+          <button class="edit-cancel-btn" onclick="event.stopPropagation(); closeEdit('${safeTs}')">Cancel</button>
+          <button class="edit-save-btn"   onclick="event.stopPropagation(); saveEdit('${safeTs}')">Save</button>
         </div>
       </li>`;
   }).join('');
 }
 
+let openEditTs = null;
+
+function toggleEdit(ts, evt) {
+  // Don't trigger if clicking inside the edit row itself
+  if (evt && evt.target.closest('.edit-row')) return;
+
+  if (openEditTs && openEditTs !== ts) closeEdit(openEditTs);
+
+  const row     = document.getElementById('edit-' + ts);
+  const chevron = document.getElementById('chevron-' + ts);
+  const isOpen  = row.classList.contains('open');
+
+  if (isOpen) {
+    row.classList.remove('open');
+    if (chevron) { chevron.style.transform = ''; chevron.style.color = 'var(--muted)'; }
+    openEditTs = null;
+  } else {
+    row.classList.add('open');
+    if (chevron) { chevron.style.transform = 'rotate(90deg)'; chevron.style.color = 'var(--accent)'; }
+    openEditTs = ts;
+    // Focus weight field after animation
+    setTimeout(() => document.getElementById('ew-' + ts)?.focus(), 50);
+  }
+}
+
+function closeEdit(ts) {
+  const row     = document.getElementById('edit-' + ts);
+  const chevron = document.getElementById('chevron-' + ts);
+  if (row) row.classList.remove('open');
+  if (chevron) { chevron.style.transform = ''; chevron.style.color = 'var(--muted)'; }
+  if (openEditTs === ts) openEditTs = null;
+}
+
+function saveEdit(oldTs) {
+  const newWeight = parseFloat(document.getElementById('ew-' + oldTs)?.value);
+  const newTs     = document.getElementById('et-' + oldTs)?.value;
+
+  if (!newWeight || newWeight < 50 || newWeight > 600) { showToast('Invalid weight'); return; }
+  if (!newTs) { showToast('Invalid date'); return; }
+
+  const idx = entries.findIndex(e => e.ts === oldTs);
+  if (idx < 0) { showToast('Entry not found'); return; }
+
+  entries[idx] = { ts: newTs, weight: newWeight };
+  save();
+  openEditTs = null;
+  renderHistory();
+  renderKeypadHint();
+  showToast('Saved ✓');
+}
+
 function deleteEntry(ts) {
   entries = entries.filter(e => e.ts !== ts);
   save();
+  openEditTs = null;
   renderHistory();
+  renderKeypadHint();
 }
 
 // ════════════════════════════════
