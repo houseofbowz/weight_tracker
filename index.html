@@ -512,6 +512,78 @@
       margin-bottom: 8px;
     }
 
+    /* ── Export / Import ── */
+    .data-section {
+      padding: 20px 16px;
+      border-top: 1px solid var(--border);
+      margin-top: 8px;
+    }
+
+    .data-btns {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+
+    .data-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 14px 8px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      transition: border-color 0.15s, background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .data-btn:active { background: var(--surface2); }
+    .data-btn.import-btn { border-color: var(--accent); color: var(--accent); }
+    .data-btn.import-btn:active { background: rgba(232,197,71,0.08); }
+
+    .data-btn .btn-icon { font-size: 1.3rem; line-height: 1; }
+    .data-btn .btn-sub  { font-size: 0.56rem; color: var(--muted); margin-top: 1px; }
+    .data-btn.import-btn .btn-sub { color: var(--accent2); }
+
+    .import-panel {
+      display: none;
+      margin-top: 12px;
+      background: var(--surface);
+      border: 1px dashed var(--accent);
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    .import-panel.open { display: block; }
+
+    .import-file-label {
+      display: inline-block;
+      margin-top: 10px;
+      background: var(--accent);
+      color: #0a0a0a;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 9px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #importFileInput { display: none; }
+
     /* Toast */
     #toast {
       position: fixed;
@@ -651,6 +723,35 @@
   <div class="log-list-section">
     <div class="section-title">All entries</div>
     <ul class="log-list" id="logList"></ul>
+  </div>
+
+  <div class="data-section">
+    <div class="section-title" style="padding:0;margin-bottom:12px;">Data</div>
+    <div class="data-btns">
+      <button class="data-btn" onclick="exportCSV()">
+        <span class="btn-icon">↓</span>
+        <span>CSV</span>
+        <span class="btn-sub">Spreadsheet</span>
+      </button>
+      <button class="data-btn" onclick="exportJSON()">
+        <span class="btn-icon">↓</span>
+        <span>JSON</span>
+        <span class="btn-sub">Backup</span>
+      </button>
+      <button class="data-btn import-btn" onclick="toggleImport()">
+        <span class="btn-icon">↑</span>
+        <span>Import</span>
+        <span class="btn-sub">JSON / CSV</span>
+      </button>
+    </div>
+
+    <div class="import-panel" id="importPanel">
+      Choose a previously exported JSON or CSV file to restore entries.<br>
+      Existing entries with matching timestamps will be skipped.
+      <br>
+      <label class="import-file-label" for="importFileInput">Choose file</label>
+      <input type="file" id="importFileInput" accept=".json,.csv" onchange="handleImport(event)" />
+    </div>
   </div>
 </div>
 
@@ -950,11 +1051,11 @@ function drawChart(days) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  if (sorted.length < 2) {
+  if (sorted.length === 0) {
     ctx.fillStyle = '#6b6560';
     ctx.font = "500 12px 'DM Mono',monospace";
     ctx.textAlign = 'center';
-    ctx.fillText(sorted.length === 0 ? 'No data yet' : 'Need more entries', W/2, H/2);
+    ctx.fillText('No data yet', W/2, H/2);
     return;
   }
 
@@ -964,10 +1065,14 @@ function drawChart(days) {
 
   const ws   = sorted.map(e => e.weight);
   const minW = Math.min(...ws), maxW = Math.max(...ws);
-  const rng  = maxW - minW || 1;
+  // If only one unique value, pad range so the dot sits in the middle vertically
+  const rng  = maxW - minW || 10;
 
-  const xP = i   => pad.left + (i / (sorted.length-1)) * cW;
-  const yP = val => pad.top  + cH - ((val - minW) / rng) * cH;
+  // For a single point, center it horizontally; otherwise spread across full width
+  const xP = i => sorted.length === 1
+    ? pad.left + cW / 2
+    : pad.left + (i / (sorted.length - 1)) * cW;
+  const yP = val => pad.top + cH - ((val - minW) / rng) * cH;
 
   // Grid
   for (let i = 0; i <= 4; i++) {
@@ -978,47 +1083,142 @@ function drawChart(days) {
     ctx.fillText(v.toFixed(1), pad.left-6, y+3);
   }
 
-  // Fill
-  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top+cH);
-  grad.addColorStop(0, 'rgba(232,197,71,0.28)');
-  grad.addColorStop(1, 'rgba(232,197,71,0)');
+  // Draw fill + line only when 2+ points
+  if (sorted.length >= 2) {
+    const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top+cH);
+    grad.addColorStop(0, 'rgba(232,197,71,0.28)');
+    grad.addColorStop(1, 'rgba(232,197,71,0)');
 
-  ctx.beginPath();
-  ctx.moveTo(xP(0), yP(sorted[0].weight));
-  sorted.forEach((e, i) => {
-    if (!i) return;
-    const cpx = (xP(i-1)+xP(i))/2;
-    ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
-  });
-  ctx.lineTo(xP(sorted.length-1), H-pad.bottom);
-  ctx.lineTo(xP(0), H-pad.bottom);
-  ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(xP(0), yP(sorted[0].weight));
+    sorted.forEach((e, i) => {
+      if (!i) return;
+      const cpx = (xP(i-1)+xP(i))/2;
+      ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
+    });
+    ctx.lineTo(xP(sorted.length-1), H-pad.bottom);
+    ctx.lineTo(xP(0), H-pad.bottom);
+    ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
 
-  // Line
-  ctx.beginPath();
-  ctx.moveTo(xP(0), yP(sorted[0].weight));
-  sorted.forEach((e, i) => {
-    if (!i) return;
-    const cpx = (xP(i-1)+xP(i))/2;
-    ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
-  });
-  ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(xP(0), yP(sorted[0].weight));
+    sorted.forEach((e, i) => {
+      if (!i) return;
+      const cpx = (xP(i-1)+xP(i))/2;
+      ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
+    });
+    ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  }
 
-  // Dots
+  // Dots — always render for every point
   sorted.forEach((e, i) => {
-    ctx.beginPath(); ctx.arc(xP(i), yP(e.weight), 3, 0, Math.PI*2);
+    ctx.beginPath(); ctx.arc(xP(i), yP(e.weight), sorted.length === 1 ? 5 : 3, 0, Math.PI*2);
     ctx.fillStyle = '#e8c547'; ctx.fill();
   });
 
-  // X labels
+  // X-axis labels — always render
   const maxL = Math.min(sorted.length, 5);
-  const step = Math.max(1, Math.floor((sorted.length-1)/(maxL-1)));
+  const step = sorted.length === 1 ? 1 : Math.max(1, Math.floor((sorted.length-1)/(maxL-1)));
   ctx.fillStyle = '#6b6560'; ctx.font = "9px 'DM Mono',monospace"; ctx.textAlign = 'center';
   for (let i = 0; i < sorted.length; i += step)
     ctx.fillText(sorted[i].ts.slice(5,10), xP(i), H-pad.bottom+16);
   const last = sorted.length-1;
   if (last % step !== 0) ctx.fillText(sorted[last].ts.slice(5,10), xP(last), H-pad.bottom+16);
+}
+
+// ════════════════════════════════
+// EXPORT / IMPORT
+// ════════════════════════════════
+function exportCSV() {
+  if (!entries.length) { showToast('No data to export'); return; }
+  const sorted = sortedEntries();
+  const rows = [
+    'timestamp,date,time,weight_lbs',
+    ...sorted.map(e => {
+      const d = new Date(e.ts);
+      const z = n => String(n).padStart(2,'0');
+      const date = `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`;
+      const time = `${z(d.getHours())}:${z(d.getMinutes())}`;
+      return `${e.ts},${date},${time},${e.weight}`;
+    })
+  ];
+  downloadFile('weight-tracker.csv', rows.join('\n'), 'text/csv');
+  showToast('CSV exported ✓');
+}
+
+function exportJSON() {
+  if (!entries.length) { showToast('No data to export'); return; }
+  const data = JSON.stringify({ version: 2, exported: new Date().toISOString(), entries: sortedEntries() }, null, 2);
+  downloadFile('weight-tracker.json', data, 'application/json');
+  showToast('JSON exported ✓');
+}
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+
+function toggleImport() {
+  const panel = document.getElementById('importPanel');
+  panel.classList.toggle('open');
+  // Reset the file input so the same file can be re-selected
+  document.getElementById('importFileInput').value = '';
+}
+
+function handleImport(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result.trim();
+    let imported = [];
+
+    try {
+      if (file.name.endsWith('.json') || text.startsWith('{')) {
+        // JSON format
+        const parsed = JSON.parse(text);
+        // Support both raw array and our versioned export format
+        const arr = Array.isArray(parsed) ? parsed : parsed.entries;
+        if (!Array.isArray(arr)) throw new Error('Invalid JSON structure');
+        imported = arr.filter(e => e.ts && typeof e.weight === 'number');
+      } else {
+        // CSV format — skip header row
+        const lines = text.split('\n').filter(l => l.trim());
+        const start = lines[0].toLowerCase().includes('timestamp') ? 1 : 0;
+        for (let i = start; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          if (cols.length < 2) continue;
+          const ts     = cols[0].trim();
+          const weight = parseFloat(cols[cols.length - 1].trim());
+          if (ts && !isNaN(weight)) imported.push({ ts, weight });
+        }
+      }
+    } catch (err) {
+      showToast('Import failed — bad file'); return;
+    }
+
+    if (!imported.length) { showToast('No valid entries found'); return; }
+
+    // Merge: skip entries whose timestamp already exists
+    const existingTs = new Set(entries.map(e => e.ts));
+    const newEntries = imported.filter(e => !existingTs.has(e.ts));
+    entries = [...entries, ...newEntries];
+    save();
+    renderHistory();
+    renderKeypadHint();
+
+    document.getElementById('importPanel').classList.remove('open');
+    document.getElementById('importFileInput').value = '';
+    showToast(`+${newEntries.length} entries imported ✓`);
+  };
+  reader.readAsText(file);
 }
 
 // ════════════════════════════════
