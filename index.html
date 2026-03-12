@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Weight" />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <title>Weight Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #141414;
+      --surface2: #1e1e1e;
+      --border: #2a2a2a;
+      --text: #f0ede8;
+      --muted: #6b6560;
+      --accent: #e8c547;
+      --accent2: #c4a832;
+      --danger: #e05c5c;
+      --green: #5ccc8a;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: max(48px, calc(env(safe-area-inset-top) + 14px)) 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.6rem;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    header h1 em { font-style: italic; color: var(--accent); }
+
+    .today-badge {
+      font-size: 0.6rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Tab bar ── */
+    nav {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    nav button {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 12px 0;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Pages ── */
+    .page { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .page.active { display: flex; }
+
+    /* ════════════════════════════════════
+       LOG TAB
+    ════════════════════════════════════ */
+    #screen-keypad {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #screen-confirm {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Weight display ── */
+    .keypad-display {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 24px 8px;
+      gap: 8px;
+    }
+
+    .last-entry-hint {
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .display-weight {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(4rem, 18vw, 6rem);
+      letter-spacing: -0.04em;
+      line-height: 1;
+      color: var(--text);
+      transition: color 0.15s;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .display-weight.placeholder { color: var(--border); }
+
+    .display-weight .unit {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.1rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .display-delta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      min-height: 18px;
+    }
+
+    .display-delta.up { color: var(--danger); }
+    .display-delta.down { color: var(--green); }
+
+    /* ── Keypad grid ── */
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .key {
+      background: var(--surface);
+      border: none;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 1.5rem;
+      font-weight: 300;
+      padding: 0;
+      height: clamp(58px, 13vw, 72px);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.08s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .key:active { background: var(--surface2); }
+    .key.key-dot { font-size: 2rem; color: var(--muted); }
+    .key.key-del { font-size: 1.1rem; color: var(--muted); }
+
+    .key.key-confirm {
+      background: var(--accent);
+      color: #0a0a0a;
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .key.key-confirm:active { background: var(--accent2); }
+    .key.key-confirm.disabled { background: var(--surface); color: var(--muted); pointer-events: none; }
+
+    /* ── Confirm screen ── */
+    .confirm-inner {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      gap: 28px;
+    }
+
+    .confirm-weight-big { text-align: center; }
+
+    .confirm-weight-big .val {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(3.5rem, 16vw, 5.5rem);
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .confirm-weight-big .unit-lbl {
+      font-size: 0.62rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    /* Timestamp pill */
+    .confirm-datetime {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .confirm-datetime:active { border-color: var(--accent); }
+
+    .dt-label {
+      font-size: 0.58rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .dt-value { font-size: 0.88rem; color: var(--text); }
+
+    .dt-edit-hint {
+      font-size: 0.6rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      white-space: nowrap;
+      margin-left: 12px;
+    }
+
+    /* Edit panel */
+    .dt-edit-panel {
+      display: none;
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      padding: 18px 20px;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .dt-edit-panel.open { display: flex; }
+
+    .dt-edit-panel label {
+      font-size: 0.58rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .dt-native {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.9rem;
+      padding: 10px 14px;
+      outline: none;
+      color-scheme: dark;
+      -webkit-appearance: none;
+    }
+
+    .dt-done-btn {
+      align-self: flex-end;
+      background: none;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      color: var(--accent);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 8px 18px;
+      cursor: pointer;
+    }
+
+    /* Action buttons */
+    .confirm-actions {
+      display: flex;
+      gap: 10px;
+      padding: 16px 24px;
+      padding-bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
+      flex-shrink: 0;
+    }
+
+    .btn-back {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 16px 18px;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-back:active { background: var(--surface2); }
+
+    .btn-save {
+      flex: 1;
+      background: var(--accent);
+      border: none;
+      border-radius: 12px;
+      color: #0a0a0a;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 16px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-save:active { background: var(--accent2); transform: scale(0.98); }
+
+    /* ════════════════════════════════════
+       HISTORY TAB
+    ════════════════════════════════════ */
+    #tab-history { overflow-y: auto; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+
+    .chart-section { padding: 20px 16px 0; }
+
+    .section-title {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 14px;
+      padding: 0 8px;
+    }
+
+    .chart-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 8px 8px;
+      overflow: hidden;
+    }
+
+    #weightChart { width: 100%; display: block; }
+
+    .range-btns {
+      display: flex;
+      gap: 6px;
+      padding: 0 8px;
+      margin-bottom: 14px;
+    }
+
+    .range-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .range-btn.active { background: var(--accent); border-color: var(--accent); color: #0a0a0a; }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin-top: 16px;
+    }
+
+    .stat-card { background: var(--surface); padding: 14px 10px; text-align: center; }
+
+    .stat-val {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.3rem;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    .stat-lbl {
+      font-size: 0.58rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .log-list-section { padding: 20px 16px 0; }
+    .log-list { list-style: none; }
+
+    .log-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 8px;
+      border-bottom: 1px solid var(--border);
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+
+    .log-item:last-child { border-bottom: none; }
+
+    .log-date-col { display: flex; flex-direction: column; gap: 3px; }
+    .log-date { font-size: 0.75rem; }
+    .log-time { font-size: 0.6rem; color: var(--muted); }
+
+    .log-right { display: flex; align-items: center; gap: 8px; }
+
+    .log-weight-val {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+      text-align: right;
+    }
+
+    .log-diff { font-size: 0.62rem; margin-top: 2px; text-align: right; }
+    .log-diff.up { color: var(--danger); }
+    .log-diff.down { color: var(--green); }
+    .log-diff.same { color: var(--muted); }
+
+    .delete-btn {
+      background: none;
+      border: none;
+      color: var(--border);
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 6px 4px 6px 12px;
+      line-height: 1;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .delete-btn:active { color: var(--danger); }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.8;
+    }
+
+    .empty-state strong {
+      display: block;
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.4rem;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: calc(20px + env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: var(--accent);
+      color: #0a0a0a;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 10px 22px;
+      border-radius: 100px;
+      opacity: 0;
+      transition: opacity 0.22s, transform 0.22s;
+      pointer-events: none;
+      z-index: 999;
+      white-space: nowrap;
+    }
+
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Weight<em>.</em></h1>
+  <div class="today-badge" id="todayBadge"></div>
+</header>
+
+<nav>
+  <button class="active" onclick="switchTab('log', this)">Log</button>
+  <button onclick="switchTab('history', this)">History</button>
+</nav>
+
+<!-- ══ LOG TAB ══════════════════════════════════════ -->
+<div class="page active" id="tab-log">
+
+  <!-- SCREEN 1: Keypad entry -->
+  <div id="screen-keypad">
+    <div class="keypad-display">
+      <div class="last-entry-hint" id="lastHint"></div>
+      <div class="display-weight placeholder" id="displayWeight">
+        <span id="displayVal">0</span>
+        <span class="unit">lbs</span>
+      </div>
+      <div class="display-delta" id="displayDelta"></div>
+    </div>
+
+    <div class="keypad">
+      <button class="key" onclick="keyPress('1')">1</button>
+      <button class="key" onclick="keyPress('2')">2</button>
+      <button class="key" onclick="keyPress('3')">3</button>
+      <button class="key" onclick="keyPress('4')">4</button>
+      <button class="key" onclick="keyPress('5')">5</button>
+      <button class="key" onclick="keyPress('6')">6</button>
+      <button class="key" onclick="keyPress('7')">7</button>
+      <button class="key" onclick="keyPress('8')">8</button>
+      <button class="key" onclick="keyPress('9')">9</button>
+      <button class="key key-dot" onclick="keyPress('.')">·</button>
+      <button class="key" onclick="keyPress('0')">0</button>
+      <button class="key key-del" onclick="keyDel()">⌫</button>
+      <button class="key" style="background:var(--bg);cursor:default" disabled></button>
+      <button class="key" style="background:var(--bg);cursor:default" disabled></button>
+      <button class="key key-confirm disabled" id="confirmKey" onclick="goToConfirm()">Log</button>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: Confirm timestamp -->
+  <div id="screen-confirm">
+    <div class="confirm-inner">
+
+      <div class="confirm-weight-big">
+        <div class="val" id="confirmWeightVal">—</div>
+        <div class="unit-lbl">pounds</div>
+      </div>
+
+      <!-- Timestamp row (tap to edit) -->
+      <div class="confirm-datetime" id="dtDisplay" onclick="toggleDtEdit()">
+        <div>
+          <div class="dt-label">Logged at</div>
+          <div class="dt-value" id="dtDisplayValue">—</div>
+        </div>
+        <div class="dt-edit-hint">Edit ›</div>
+      </div>
+
+      <!-- Datetime edit panel -->
+      <div class="dt-edit-panel" id="dtEditPanel">
+        <div>
+          <label>Date &amp; Time</label>
+          <input class="dt-native" type="datetime-local" id="dtNativeInput" />
+        </div>
+        <button class="dt-done-btn" onclick="closeDtEdit()">Done</button>
+      </div>
+
+    </div>
+
+    <div class="confirm-actions">
+      <button class="btn-back" onclick="goBack()">← Back</button>
+      <button class="btn-save" onclick="saveEntry()">Save entry</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ HISTORY TAB ═══════════════════════════════════ -->
+<div class="page" id="tab-history">
+  <div class="chart-section">
+    <div class="section-title">Trend</div>
+    <div class="range-btns">
+      <button class="range-btn active" onclick="setRange(7,this)">7d</button>
+      <button class="range-btn" onclick="setRange(30,this)">30d</button>
+      <button class="range-btn" onclick="setRange(90,this)">90d</button>
+      <button class="range-btn" onclick="setRange(0,this)">All</button>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="weightChart" height="180"></canvas>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-val" id="statEntries">0</div>
+      <div class="stat-lbl">Entries</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="statLow">—</div>
+      <div class="stat-lbl">Lowest</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="statHigh">—</div>
+      <div class="stat-lbl">Highest</div>
+    </div>
+  </div>
+
+  <div class="log-list-section">
+    <div class="section-title">All entries</div>
+    <ul class="log-list" id="logList"></ul>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════
+// DATA — entries: [{ts, weight}]
+// ════════════════════════════════
+let entries = JSON.parse(localStorage.getItem('wt_entries_v2') || '[]');
+
+// Migrate old date-only format
+const oldEntries = JSON.parse(localStorage.getItem('wt_entries') || '[]');
+if (oldEntries.length && !entries.length) {
+  entries = oldEntries.map(e => ({ ts: e.date + 'T08:00:00', weight: e.weight }));
+  localStorage.setItem('wt_entries_v2', JSON.stringify(entries));
+}
+
+function save() { localStorage.setItem('wt_entries_v2', JSON.stringify(entries)); }
+function sortedEntries() { return [...entries].sort((a, b) => a.ts.localeCompare(b.ts)); }
+
+// ════════════════════════════════
+// HELPERS
+// ════════════════════════════════
+function nowLocalISO() {
+  const d = new Date();
+  const z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+
+function fmtDatetime(iso) {
+  const d = new Date(iso);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const wdays  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const z = n => String(n).padStart(2,'0');
+  let h = d.getHours(), ap = 'am';
+  if (h >= 12) { ap = 'pm'; if (h > 12) h -= 12; }
+  if (h === 0) h = 12;
+  return `${wdays[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()} · ${h}:${z(d.getMinutes())} ${ap}`;
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  const z = n => String(n).padStart(2,'0');
+  let h = d.getHours(), ap = 'am';
+  if (h >= 12) { ap = 'pm'; if (h > 12) h -= 12; }
+  if (h === 0) h = 12;
+  return `${h}:${z(d.getMinutes())} ${ap}`;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ════════════════════════════════
+// INIT
+// ════════════════════════════════
+document.getElementById('todayBadge').textContent =
+  new Date().toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+
+renderKeypadHint();
+
+// ════════════════════════════════
+// TABS
+// ════════════════════════════════
+function switchTab(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'history') renderHistory();
+}
+
+// ════════════════════════════════
+// KEYPAD
+// ════════════════════════════════
+let kbuf = '';
+
+function keyPress(k) {
+  if (k === '.') {
+    if (kbuf.includes('.')) return;
+    kbuf = (kbuf === '' || kbuf === '0') ? '0.' : kbuf + '.';
+  } else {
+    if (kbuf === '0') { kbuf = k; }
+    else {
+      const parts = kbuf.split('.');
+      if (parts[1] !== undefined && parts[1].length >= 1) return;
+      if (kbuf.replace('.','').length >= 5) return;
+      kbuf += k;
+    }
+  }
+  updateDisplay();
+}
+
+function keyDel() {
+  kbuf = kbuf.slice(0, -1);
+  updateDisplay();
+}
+
+function updateDisplay() {
+  const valEl   = document.getElementById('displayVal');
+  const wrapEl  = document.getElementById('displayWeight');
+  const keyEl   = document.getElementById('confirmKey');
+  const deltaEl = document.getElementById('displayDelta');
+
+  const val   = parseFloat(kbuf);
+  const valid = kbuf.length > 0 && !isNaN(val) && val >= 50 && val <= 600;
+
+  valEl.textContent = kbuf === '' ? '0' : kbuf;
+  wrapEl.classList.toggle('placeholder', kbuf === '');
+  keyEl.classList.toggle('disabled', !valid);
+
+  if (valid) {
+    const last = sortedEntries().slice(-1)[0];
+    if (last) {
+      const diff = (val - last.weight).toFixed(1);
+      const sign = diff > 0 ? '+' : '';
+      const cls  = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+      deltaEl.className = `display-delta ${cls}`;
+      deltaEl.textContent = `${sign}${diff} lbs vs last`;
+    } else {
+      deltaEl.className = 'display-delta';
+      deltaEl.textContent = '';
+    }
+  } else {
+    deltaEl.className = 'display-delta';
+    deltaEl.textContent = '';
+  }
+}
+
+function renderKeypadHint() {
+  const last = sortedEntries().slice(-1)[0];
+  document.getElementById('lastHint').textContent = last
+    ? `Last: ${last.weight} lbs · ${fmtDatetime(last.ts)}`
+    : 'No entries yet';
+}
+
+// ════════════════════════════════
+// SCREEN TRANSITIONS
+// ════════════════════════════════
+let pendingTs = '';
+
+function goToConfirm() {
+  const val = parseFloat(kbuf);
+  if (!val || val < 50 || val > 600) return;
+
+  pendingTs = nowLocalISO();
+
+  document.getElementById('confirmWeightVal').textContent = kbuf;
+  document.getElementById('dtDisplayValue').textContent   = fmtDatetime(pendingTs);
+  document.getElementById('dtNativeInput').value          = pendingTs;
+
+  // Reset edit panel
+  document.getElementById('dtEditPanel').classList.remove('open');
+  document.getElementById('dtDisplay').style.display = '';
+
+  document.getElementById('screen-keypad').style.display  = 'none';
+  document.getElementById('screen-confirm').style.display = 'flex';
+}
+
+function goBack() {
+  document.getElementById('screen-confirm').style.display = 'none';
+  document.getElementById('screen-keypad').style.display  = '';
+}
+
+function toggleDtEdit() {
+  const panel   = document.getElementById('dtEditPanel');
+  const display = document.getElementById('dtDisplay');
+  if (panel.classList.contains('open')) {
+    closeDtEdit();
+  } else {
+    panel.classList.add('open');
+    display.style.display = 'none';
+  }
+}
+
+function closeDtEdit() {
+  const newVal = document.getElementById('dtNativeInput').value;
+  if (newVal) {
+    pendingTs = newVal;
+    document.getElementById('dtDisplayValue').textContent = fmtDatetime(pendingTs);
+  }
+  document.getElementById('dtEditPanel').classList.remove('open');
+  document.getElementById('dtDisplay').style.display = '';
+}
+
+// ════════════════════════════════
+// SAVE
+// ════════════════════════════════
+function saveEntry() {
+  const weight = parseFloat(kbuf);
+  if (!weight || weight < 50 || weight > 600) return;
+
+  entries.push({ ts: pendingTs, weight });
+  save();
+
+  kbuf = '';
+  updateDisplay();
+  renderKeypadHint();
+
+  document.getElementById('screen-confirm').style.display = 'none';
+  document.getElementById('screen-keypad').style.display  = '';
+
+  showToast('Logged ✓');
+}
+
+// ════════════════════════════════
+// HISTORY
+// ════════════════════════════════
+let activeRange = 7;
+
+function setRange(days, btn) {
+  activeRange = days;
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  drawChart(days);
+}
+
+function renderHistory() {
+  const weights = entries.map(e => e.weight);
+  document.getElementById('statEntries').textContent = entries.length;
+  document.getElementById('statLow').textContent     = weights.length ? Math.min(...weights) : '—';
+  document.getElementById('statHigh').textContent    = weights.length ? Math.max(...weights) : '—';
+  drawChart(activeRange);
+  renderList();
+}
+
+function renderList() {
+  const sorted = sortedEntries().reverse();
+  const ul = document.getElementById('logList');
+
+  if (!sorted.length) {
+    ul.innerHTML = `<div class="empty-state"><strong>Nothing here yet</strong>Log your first weight on the Log tab.</div>`;
+    return;
+  }
+
+  ul.innerHTML = sorted.map((e, i) => {
+    const prev = sorted[i + 1];
+    let diffHTML = '';
+    if (prev) {
+      const diff = (e.weight - prev.weight).toFixed(1);
+      const sign = diff > 0 ? '+' : '';
+      const cls  = diff > 0 ? 'up' : diff < 0 ? 'down' : 'same';
+      diffHTML = `<div class="log-diff ${cls}">${sign}${diff}</div>`;
+    }
+    return `
+      <li class="log-item">
+        <div class="log-date-col">
+          <div class="log-date">${fmtDate(e.ts)}</div>
+          <div class="log-time">${fmtTime(e.ts)}</div>
+        </div>
+        <div class="log-right">
+          <div>
+            <div class="log-weight-val">${e.weight}</div>
+            ${diffHTML}
+          </div>
+          <button class="delete-btn" onclick="deleteEntry('${e.ts.replace(/'/g,"\\'")}')">×</button>
+        </div>
+      </li>`;
+  }).join('');
+}
+
+function deleteEntry(ts) {
+  entries = entries.filter(e => e.ts !== ts);
+  save();
+  renderHistory();
+}
+
+// ════════════════════════════════
+// CHART
+// ════════════════════════════════
+function drawChart(days) {
+  const canvas = document.getElementById('weightChart');
+  const ctx    = canvas.getContext('2d');
+
+  let sorted = sortedEntries();
+  if (days > 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    sorted = sorted.filter(e => new Date(e.ts) >= cutoff);
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.clientWidth - 16;
+  const H = 180;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (sorted.length < 2) {
+    ctx.fillStyle = '#6b6560';
+    ctx.font = "500 12px 'DM Mono',monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(sorted.length === 0 ? 'No data yet' : 'Need more entries', W/2, H/2);
+    return;
+  }
+
+  const pad = { top: 16, right: 16, bottom: 30, left: 44 };
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top  - pad.bottom;
+
+  const ws   = sorted.map(e => e.weight);
+  const minW = Math.min(...ws), maxW = Math.max(...ws);
+  const rng  = maxW - minW || 1;
+
+  const xP = i   => pad.left + (i / (sorted.length-1)) * cW;
+  const yP = val => pad.top  + cH - ((val - minW) / rng) * cH;
+
+  // Grid
+  for (let i = 0; i <= 4; i++) {
+    const v = minW + (rng/4)*i, y = yP(v);
+    ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W-pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#6b6560'; ctx.font = "10px 'DM Mono',monospace"; ctx.textAlign = 'right';
+    ctx.fillText(v.toFixed(1), pad.left-6, y+3);
+  }
+
+  // Fill
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top+cH);
+  grad.addColorStop(0, 'rgba(232,197,71,0.28)');
+  grad.addColorStop(1, 'rgba(232,197,71,0)');
+
+  ctx.beginPath();
+  ctx.moveTo(xP(0), yP(sorted[0].weight));
+  sorted.forEach((e, i) => {
+    if (!i) return;
+    const cpx = (xP(i-1)+xP(i))/2;
+    ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
+  });
+  ctx.lineTo(xP(sorted.length-1), H-pad.bottom);
+  ctx.lineTo(xP(0), H-pad.bottom);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(xP(0), yP(sorted[0].weight));
+  sorted.forEach((e, i) => {
+    if (!i) return;
+    const cpx = (xP(i-1)+xP(i))/2;
+    ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
+  });
+  ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+
+  // Dots
+  sorted.forEach((e, i) => {
+    ctx.beginPath(); ctx.arc(xP(i), yP(e.weight), 3, 0, Math.PI*2);
+    ctx.fillStyle = '#e8c547'; ctx.fill();
+  });
+
+  // X labels
+  const maxL = Math.min(sorted.length, 5);
+  const step = Math.max(1, Math.floor((sorted.length-1)/(maxL-1)));
+  ctx.fillStyle = '#6b6560'; ctx.font = "9px 'DM Mono',monospace"; ctx.textAlign = 'center';
+  for (let i = 0; i < sorted.length; i += step)
+    ctx.fillText(sorted[i].ts.slice(5,10), xP(i), H-pad.bottom+16);
+  const last = sorted.length-1;
+  if (last % step !== 0) ctx.fillText(sorted[last].ts.slice(5,10), xP(last), H-pad.bottom+16);
+}
+
+// ════════════════════════════════
+// SERVICE WORKER
+// ════════════════════════════════
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
