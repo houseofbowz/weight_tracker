@@ -630,6 +630,56 @@
       margin-bottom: 8px;
     }
 
+    /* ── Trend card ── */
+    .trend-card {
+      margin: 0 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .trend-label {
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+    }
+
+    .trend-value-row {
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+    }
+
+    .trend-slope {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.6rem;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    .trend-slope.up   { color: var(--danger); }
+    .trend-slope.down { color: var(--green);  }
+    .trend-slope.flat { color: var(--muted);  }
+
+    .trend-unit {
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    .trend-sub {
+      font-size: 0.62rem;
+      color: var(--muted);
+      text-align: right;
+      line-height: 1.5;
+    }
+
     /* ── Export / Import ── */
     .data-section {
       padding: 20px 16px;
@@ -836,6 +886,15 @@
       <div class="stat-val" id="statHigh">—</div>
       <div class="stat-lbl">Highest</div>
     </div>
+  </div>
+
+  <div class="trend-card" id="trendCard" style="display:none">
+    <div class="trend-label">Linear trend</div>
+    <div class="trend-value-row">
+      <span class="trend-slope" id="trendSlope">—</span>
+      <span class="trend-unit">lbs / day</span>
+    </div>
+    <div class="trend-sub" id="trendSub"></div>
   </div>
 
   <div class="log-list-section">
@@ -1106,6 +1165,52 @@ function renderHistory() {
   renderList();
 }
 
+// Compute OLS linear regression. Returns {slope, intercept} where
+// x is days-since-first-entry and y is weight.
+// Returns null if fewer than 2 distinct-day points.
+function linReg(sorted) {
+  if (sorted.length < 2) return null;
+  const t0 = new Date(sorted[0].ts).getTime();
+  const MS_DAY = 86400000;
+  const pts = sorted.map(e => ({
+    x: (new Date(e.ts).getTime() - t0) / MS_DAY,
+    y: e.weight
+  }));
+  const n  = pts.length;
+  const sx = pts.reduce((a, p) => a + p.x, 0);
+  const sy = pts.reduce((a, p) => a + p.y, 0);
+  const sxy= pts.reduce((a, p) => a + p.x * p.y, 0);
+  const sx2= pts.reduce((a, p) => a + p.x * p.x, 0);
+  const denom = n * sx2 - sx * sx;
+  if (Math.abs(denom) < 1e-10) return null;
+  const slope     = (n * sxy - sx * sy) / denom;
+  const intercept = (sy - slope * sx) / n;
+  return { slope, intercept, pts };
+}
+
+function updateTrendCard(sorted) {
+  const card = document.getElementById('trendCard');
+  const reg  = linReg(sorted);
+
+  if (!reg) { card.style.display = 'none'; return; }
+
+  const { slope, pts } = reg;
+  const sign   = slope > 0 ? '+' : '';
+  const perWk  = (slope * 7).toFixed(2);
+  const signWk = slope > 0 ? '+' : '';
+  const cls    = Math.abs(slope) < 0.005 ? 'flat' : slope > 0 ? 'up' : 'down';
+  const spanDays = pts[pts.length - 1].x;
+
+  const slopeEl = document.getElementById('trendSlope');
+  slopeEl.textContent  = `${sign}${slope.toFixed(3)}`;
+  slopeEl.className    = `trend-slope ${cls}`;
+
+  document.getElementById('trendSub').innerHTML =
+    `${signWk}${perWk} lbs/wk &nbsp;·&nbsp; over ${Math.round(spanDays)} days`;
+
+  card.style.display = '';
+}
+
 function renderList() {
   const sorted = sortedEntries().reverse();
   const ul = document.getElementById('logList');
@@ -1236,6 +1341,9 @@ function drawChart(days) {
     sorted = sorted.filter(e => new Date(e.ts) >= cutoff);
   }
 
+  // Update trend card for current range
+  updateTrendCard(sorted);
+
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.parentElement.clientWidth - 16;
   const H = 180;
@@ -1258,28 +1366,37 @@ function drawChart(days) {
 
   const ws   = sorted.map(e => e.weight);
   const minW = Math.min(...ws), maxW = Math.max(...ws);
-  // If only one unique value, pad range so the dot sits in the middle vertically
-  const rng  = maxW - minW || 10;
 
-  // For a single point, center it horizontally; otherwise spread across full width
+  // Expand y range to include trendline endpoints if they'd go outside data range
+  let yMin = minW, yMax = maxW;
+  const reg = linReg(sorted);
+  if (reg) {
+    const { slope, intercept, pts } = reg;
+    const trendStart = intercept;
+    const trendEnd   = slope * pts[pts.length - 1].x + intercept;
+    yMin = Math.min(yMin, trendStart, trendEnd);
+    yMax = Math.max(yMax, trendStart, trendEnd);
+  }
+
+  const rng  = yMax - yMin || 10;
   const xP = i => sorted.length === 1
     ? pad.left + cW / 2
     : pad.left + (i / (sorted.length - 1)) * cW;
-  const yP = val => pad.top + cH - ((val - minW) / rng) * cH;
+  const yP = val => pad.top + cH - ((val - yMin) / rng) * cH;
 
   // Grid
   for (let i = 0; i <= 4; i++) {
-    const v = minW + (rng/4)*i, y = yP(v);
+    const v = yMin + (rng/4)*i, y = yP(v);
     ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W-pad.right, y); ctx.stroke();
     ctx.fillStyle = '#6b6560'; ctx.font = "10px 'DM Mono',monospace"; ctx.textAlign = 'right';
     ctx.fillText(v.toFixed(1), pad.left-6, y+3);
   }
 
-  // Draw fill + line only when 2+ points
+  // Draw fill + smooth line when 2+ points
   if (sorted.length >= 2) {
     const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top+cH);
-    grad.addColorStop(0, 'rgba(232,197,71,0.28)');
+    grad.addColorStop(0, 'rgba(232,197,71,0.18)');
     grad.addColorStop(1, 'rgba(232,197,71,0)');
 
     ctx.beginPath();
@@ -1304,13 +1421,32 @@ function drawChart(days) {
     ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
   }
 
-  // Dots — always render for every point
+  // Trendline
+  if (reg && sorted.length >= 2) {
+    const { slope, intercept, pts } = reg;
+    const tyStart = intercept;
+    const tyEnd   = slope * pts[pts.length - 1].x + intercept;
+    const tColor  = Math.abs(slope) < 0.005 ? '#6b6560' : slope > 0 ? '#e05c5c' : '#5ccc8a';
+
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(xP(0), yP(tyStart));
+    ctx.lineTo(xP(sorted.length - 1), yP(tyEnd));
+    ctx.strokeStyle = tColor;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.75;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Dots — always render
   sorted.forEach((e, i) => {
     ctx.beginPath(); ctx.arc(xP(i), yP(e.weight), sorted.length === 1 ? 5 : 3, 0, Math.PI*2);
     ctx.fillStyle = '#e8c547'; ctx.fill();
   });
 
-  // X-axis labels — always render
+  // X-axis labels
   const maxL = Math.min(sorted.length, 5);
   const step = sorted.length === 1 ? 1 : Math.max(1, Math.floor((sorted.length-1)/(maxL-1)));
   ctx.fillStyle = '#6b6560'; ctx.font = "9px 'DM Mono',monospace"; ctx.textAlign = 'center';
