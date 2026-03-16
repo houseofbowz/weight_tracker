@@ -1393,34 +1393,6 @@ function drawChart(days) {
     ctx.fillText(v.toFixed(1), pad.left-6, y+3);
   }
 
-  // Draw fill + smooth line when 2+ points
-  if (sorted.length >= 2) {
-    const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top+cH);
-    grad.addColorStop(0, 'rgba(232,197,71,0.18)');
-    grad.addColorStop(1, 'rgba(232,197,71,0)');
-
-    ctx.beginPath();
-    ctx.moveTo(xP(0), yP(sorted[0].weight));
-    sorted.forEach((e, i) => {
-      if (!i) return;
-      const cpx = (xP(i-1)+xP(i))/2;
-      ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
-    });
-    ctx.lineTo(xP(sorted.length-1), H-pad.bottom);
-    ctx.lineTo(xP(0), H-pad.bottom);
-    ctx.closePath();
-    ctx.fillStyle = grad; ctx.fill();
-
-    ctx.beginPath();
-    ctx.moveTo(xP(0), yP(sorted[0].weight));
-    sorted.forEach((e, i) => {
-      if (!i) return;
-      const cpx = (xP(i-1)+xP(i))/2;
-      ctx.bezierCurveTo(cpx, yP(sorted[i-1].weight), cpx, yP(e.weight), xP(i), yP(e.weight));
-    });
-    ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
-  }
-
   // Trendline
   if (reg && sorted.length >= 2) {
     const { slope, intercept, pts } = reg;
