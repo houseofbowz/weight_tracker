@@ -632,53 +632,95 @@
 
     /* ── Trend card ── */
     .trend-card {
-      margin: 0 16px;
+      margin: 10px 16px 0;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 14px 18px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .trend-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .trend-row-label {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .trend-label {
-      font-size: 0.6rem;
+      gap: 7px;
+      font-size: 0.62rem;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.09em;
       color: var(--muted);
+      white-space: nowrap;
     }
 
-    .trend-value-row {
+    .trend-swatch {
+      display: inline-block;
+      width: 18px;
+      height: 2px;
+      border-radius: 1px;
+      flex-shrink: 0;
+    }
+
+    .raw-swatch {
+      background: repeating-linear-gradient(
+        90deg, #6b9e6b 0px, #6b9e6b 5px, transparent 5px, transparent 9px
+      );
+    }
+
+    .cleaned-swatch {
+      background: #7eb8f7;
+    }
+
+    .trend-row-vals {
       display: flex;
       align-items: baseline;
-      gap: 5px;
+      gap: 4px;
+      flex-wrap: wrap;
     }
 
-    .trend-slope {
+    .trend-slope-sm {
       font-family: 'DM Serif Display', serif;
-      font-size: 1.6rem;
+      font-size: 1.15rem;
       letter-spacing: -0.02em;
       line-height: 1;
     }
 
-    .trend-slope.up   { color: var(--danger); }
-    .trend-slope.down { color: var(--green);  }
-    .trend-slope.flat { color: var(--muted);  }
+    .trend-slope-sm.up   { color: var(--danger); }
+    .trend-slope-sm.down { color: var(--green);  }
+    .trend-slope-sm.flat { color: var(--muted);  }
 
-    .trend-unit {
-      font-size: 0.65rem;
+    .trend-unit-sm {
+      font-size: 0.6rem;
       color: var(--muted);
       letter-spacing: 0.04em;
     }
 
-    .trend-sub {
-      font-size: 0.62rem;
-      color: var(--muted);
-      text-align: right;
-      line-height: 1.5;
+    .trend-divider {
+      font-size: 0.6rem;
+      color: var(--border);
+      padding: 0 2px;
     }
+
+    .trend-note {
+      font-size: 0.58rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* (keep old single-value selectors in case referenced elsewhere) */
+    .trend-label  { display: none; }
+    .trend-value-row { display: none; }
+    .trend-sub    { display: none; }
+    .trend-slope  { display: none; }
+    .trend-unit   { display: none; }
 
     /* ── Export / Import ── */
     .data-section {
@@ -888,14 +930,7 @@
     </div>
   </div>
 
-  <div class="trend-card" id="trendCard" style="display:none">
-    <div class="trend-label">Linear trend</div>
-    <div class="trend-value-row">
-      <span class="trend-slope" id="trendSlope">—</span>
-      <span class="trend-unit">lbs / day</span>
-    </div>
-    <div class="trend-sub" id="trendSub"></div>
-  </div>
+  <div class="trend-card" id="trendCard" style="display:none"></div>
 
   <div class="log-list-section">
     <div class="section-title">All entries</div>
@@ -1188,6 +1223,53 @@ function linReg(sorted) {
   return { slope, intercept, pts };
 }
 
+// Build cleaned weekly averages.
+// For each ISO week that has entries:
+//   - Drop the highest 1 (or 2 if ≥5 entries) readings
+//   - Drop the lowest 1 reading
+//   - Average the remainder
+// Returns array of {x (days from t0), y (avg weight), label (MM-DD of week midpoint)}
+// sorted by week. Returns [] if no week has enough entries to trim.
+function cleanedWeeklyPts(sorted) {
+  if (!sorted.length) return [];
+  const t0 = new Date(sorted[0].ts).getTime();
+  const MS_DAY = 86400000;
+
+  // Group by ISO week key  YYYY-Www
+  const weeks = {};
+  sorted.forEach(e => {
+    const d = new Date(e.ts);
+    // ISO week: get Monday of the week
+    const day = d.getDay() || 7; // 1=Mon … 7=Sun
+    const mon = new Date(d); mon.setDate(d.getDate() - (day - 1));
+    mon.setHours(0,0,0,0);
+    const key = mon.toISOString().slice(0,10);
+    if (!weeks[key]) weeks[key] = { monMs: mon.getTime(), readings: [] };
+    weeks[key].readings.push({ ts: e.ts, weight: e.weight });
+  });
+
+  const pts = [];
+  Object.values(weeks).sort((a,b) => a.monMs - b.monMs).forEach(wk => {
+    const r = [...wk.readings].sort((a,b) => a.weight - b.weight);
+    if (r.length < 3) return; // need at least 3 to trim 2 and have something left
+    const dropHigh = r.length >= 5 ? 2 : 1;
+    const dropLow  = 1;
+    const trimmed  = r.slice(dropLow, r.length - dropHigh);
+    if (!trimmed.length) return;
+    const avg = trimmed.reduce((s, e) => s + e.weight, 0) / trimmed.length;
+    // x = midpoint of week (Wednesday) in days from t0
+    const midMs = wk.monMs + 3 * MS_DAY;
+    const x = (midMs - t0) / MS_DAY;
+    const label = new Date(midMs).toISOString().slice(5,10);
+    pts.push({ x, y: avg, label });
+  });
+  return pts;
+}
+
+function slopeColor(slope) {
+  return Math.abs(slope) < 0.005 ? 'flat' : slope > 0 ? 'up' : 'down';
+}
+
 function updateTrendCard(sorted) {
   const card = document.getElementById('trendCard');
   const reg  = linReg(sorted);
@@ -1195,18 +1277,70 @@ function updateTrendCard(sorted) {
   if (!reg) { card.style.display = 'none'; return; }
 
   const { slope, pts } = reg;
-  const sign   = slope > 0 ? '+' : '';
-  const perWk  = (slope * 7).toFixed(2);
-  const signWk = slope > 0 ? '+' : '';
-  const cls    = Math.abs(slope) < 0.005 ? 'flat' : slope > 0 ? 'up' : 'down';
-  const spanDays = pts[pts.length - 1].x;
+  const spanDays = Math.round(pts[pts.length - 1].x);
 
-  const slopeEl = document.getElementById('trendSlope');
-  slopeEl.textContent  = `${sign}${slope.toFixed(3)}`;
-  slopeEl.className    = `trend-slope ${cls}`;
+  // Raw linear trend row
+  const rawSign  = slope > 0 ? '+' : '';
+  const rawPerWk = (slope * 7).toFixed(2);
+  const rawCls   = slopeColor(slope);
 
-  document.getElementById('trendSub').innerHTML =
-    `${signWk}${perWk} lbs/wk &nbsp;·&nbsp; over ${Math.round(spanDays)} days`;
+  // Cleaned weekly trend row
+  const wkPts = cleanedWeeklyPts(sorted);
+  let cleanedRowHTML = '';
+  if (wkPts.length >= 2) {
+    const wkSorted = wkPts.map(p => ({
+      ts: new Date(new Date(sorted[0].ts).getTime() + p.x * 86400000).toISOString(),
+      weight: p.y
+    }));
+    const wkReg = linReg(wkSorted);
+    if (wkReg) {
+      const ws     = wkReg.slope > 0 ? '+' : '';
+      const wPerWk = (wkReg.slope * 7).toFixed(2);
+      const wCls   = slopeColor(wkReg.slope);
+      cleanedRowHTML = `
+        <div class="trend-row">
+          <div class="trend-row-label">
+            <span class="trend-swatch cleaned-swatch"></span>
+            Cleaned weekly
+          </div>
+          <div class="trend-row-vals">
+            <span class="trend-slope-sm ${wCls}">${ws}${wkReg.slope.toFixed(3)}</span>
+            <span class="trend-unit-sm">lbs/day</span>
+            <span class="trend-divider">·</span>
+            <span class="trend-slope-sm ${wCls}">${ws}${wPerWk}</span>
+            <span class="trend-unit-sm">lbs/wk</span>
+            <span class="trend-note">(${wkPts.length} wks)</span>
+          </div>
+        </div>`;
+    }
+  } else if (wkPts.length > 0) {
+    cleanedRowHTML = `
+      <div class="trend-row">
+        <div class="trend-row-label">
+          <span class="trend-swatch cleaned-swatch"></span>
+          Cleaned weekly
+        </div>
+        <div class="trend-row-vals trend-note">Need ≥2 qualifying weeks for trend</div>
+      </div>`;
+  }
+
+  document.getElementById('trendCard').innerHTML = `
+    <div class="trend-row">
+      <div class="trend-row-label">
+        <span class="trend-swatch raw-swatch"></span>
+        All data
+      </div>
+      <div class="trend-row-vals">
+        <span class="trend-slope-sm ${rawCls}">${rawSign}${slope.toFixed(3)}</span>
+        <span class="trend-unit-sm">lbs/day</span>
+        <span class="trend-divider">·</span>
+        <span class="trend-slope-sm ${rawCls}">${rawSign}${rawPerWk}</span>
+        <span class="trend-unit-sm">lbs/wk</span>
+        <span class="trend-note">(${spanDays}d)</span>
+      </div>
+    </div>
+    ${cleanedRowHTML}
+  `;
 
   card.style.display = '';
 }
@@ -1367,7 +1501,7 @@ function drawChart(days) {
   const ws   = sorted.map(e => e.weight);
   const minW = Math.min(...ws), maxW = Math.max(...ws);
 
-  // Expand y range to include trendline endpoints if they'd go outside data range
+  // Expand y range to include trendline endpoints + cleaned weekly pts
   let yMin = minW, yMax = maxW;
   const reg = linReg(sorted);
   if (reg) {
@@ -1376,6 +1510,11 @@ function drawChart(days) {
     const trendEnd   = slope * pts[pts.length - 1].x + intercept;
     yMin = Math.min(yMin, trendStart, trendEnd);
     yMax = Math.max(yMax, trendStart, trendEnd);
+  }
+  const wkPts = cleanedWeeklyPts(sorted);
+  if (wkPts.length) {
+    yMin = Math.min(yMin, ...wkPts.map(p => p.y));
+    yMax = Math.max(yMax, ...wkPts.map(p => p.y));
   }
 
   const rng  = yMax - yMin || 10;
@@ -1393,7 +1532,7 @@ function drawChart(days) {
     ctx.fillText(v.toFixed(1), pad.left-6, y+3);
   }
 
-  // Trendline
+  // Linear trendline through all raw data (dashed, green/red)
   if (reg && sorted.length >= 2) {
     const { slope, intercept, pts } = reg;
     const tyStart = intercept;
@@ -1410,6 +1549,71 @@ function drawChart(days) {
     ctx.globalAlpha = 0.75;
     ctx.stroke();
     ctx.restore();
+  }
+
+  // Cleaned weekly estimates — dots + connecting line + OLS through weekly points
+  if (wkPts.length >= 1) {
+    const totalDays = sorted.length > 1
+      ? (new Date(sorted[sorted.length-1].ts) - new Date(sorted[0].ts)) / 86400000
+      : 1;
+    const wkXP = dayX => sorted.length === 1
+      ? pad.left + cW / 2
+      : pad.left + (dayX / totalDays) * cW;
+
+    // Smooth connecting line through weekly points
+    if (wkPts.length >= 2) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(wkXP(wkPts[0].x), yP(wkPts[0].y));
+      wkPts.forEach((p, i) => {
+        if (!i) return;
+        const cpx = (wkXP(wkPts[i-1].x) + wkXP(p.x)) / 2;
+        ctx.bezierCurveTo(cpx, yP(wkPts[i-1].y), cpx, yP(p.y), wkXP(p.x), yP(p.y));
+      });
+      ctx.strokeStyle = '#7eb8f7';
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = 0.9;
+      ctx.stroke();
+      ctx.restore();
+
+      // Linear regression through the cleaned weekly points
+      const wkSorted = wkPts.map(p => ({
+        ts: new Date(new Date(sorted[0].ts).getTime() + p.x * 86400000).toISOString(),
+        weight: p.y
+      }));
+      const wkReg = linReg(wkSorted);
+      if (wkReg) {
+        const { slope: ws, intercept: wi, pts: wp } = wkReg;
+        // Map wkReg x-space (days from first weekly pt) back to canvas
+        // wkPts[0].x is already days from overall t0, so wkReg intercept is at wkPts[0].x days
+        const wkT0dayX = wkPts[0].x;
+        const wkLastDayX = wkPts[wkPts.length - 1].x;
+        const tyWkStart = wi + ws * 0; // x=0 in wkReg = first weekly pt
+        const tyWkEnd   = wi + ws * wp[wp.length - 1].x;
+        const wkTColor  = Math.abs(ws) < 0.005 ? '#4a6a8a' : ws > 0 ? '#c06060' : '#4a8fcf';
+
+        ctx.save();
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        ctx.moveTo(wkXP(wkT0dayX),    yP(tyWkStart));
+        ctx.lineTo(wkXP(wkLastDayX),  yP(tyWkEnd));
+        ctx.strokeStyle = wkTColor;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.85;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // Weekly dots (hollow-style, drawn on top)
+    wkPts.forEach(p => {
+      const cx = wkXP(p.x), cy = yP(p.y);
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2);
+      ctx.fillStyle = '#0a0a0a'; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2);
+      ctx.fillStyle = '#7eb8f7'; ctx.fill();
+    });
   }
 
   // Dots — always render
