@@ -1475,7 +1475,6 @@ function drawChart(days) {
     sorted = sorted.filter(e => new Date(e.ts) >= cutoff);
   }
 
-  // Update trend card for current range
   updateTrendCard(sorted);
 
   const dpr = window.devicePixelRatio || 1;
@@ -1497,53 +1496,59 @@ function drawChart(days) {
   const pad = { top: 16, right: 16, bottom: 30, left: 44 };
   const cW = W - pad.left - pad.right;
   const cH = H - pad.top  - pad.bottom;
+  const MS_DAY = 86400000;
 
-  const ws   = sorted.map(e => e.weight);
-  const minW = Math.min(...ws), maxW = Math.max(...ws);
+  // ── Unified time-based x scale ──────────────────────────────────────────
+  // All x positions are driven by days-since-first-point, so gaps in logging
+  // are faithfully represented as gaps on the canvas.
+  const t0Ms     = new Date(sorted[0].ts).getTime();
+  const tEndMs   = new Date(sorted[sorted.length - 1].ts).getTime();
+  const totalDays = Math.max((tEndMs - t0Ms) / MS_DAY, 1); // avoid /0 for single point
 
-  // Expand y range to include trendline endpoints + cleaned weekly pts
-  let yMin = minW, yMax = maxW;
+  // dayXP: convert days-since-t0 → canvas x pixel
+  const dayXP = d => pad.left + (d / totalDays) * cW;
+  // tsXP: convert ISO timestamp → canvas x pixel
+  const tsXP  = ts => sorted.length === 1
+    ? pad.left + cW / 2
+    : dayXP((new Date(ts).getTime() - t0Ms) / MS_DAY);
+
+  // ── Y scale ─────────────────────────────────────────────────────────────
+  const ws = sorted.map(e => e.weight);
+  let yMin = Math.min(...ws), yMax = Math.max(...ws);
+
   const reg = linReg(sorted);
   if (reg) {
     const { slope, intercept, pts } = reg;
-    const trendStart = intercept;
-    const trendEnd   = slope * pts[pts.length - 1].x + intercept;
-    yMin = Math.min(yMin, trendStart, trendEnd);
-    yMax = Math.max(yMax, trendStart, trendEnd);
+    yMin = Math.min(yMin, intercept, slope * pts[pts.length-1].x + intercept);
+    yMax = Math.max(yMax, intercept, slope * pts[pts.length-1].x + intercept);
   }
   const wkPts = cleanedWeeklyPts(sorted);
   if (wkPts.length) {
     yMin = Math.min(yMin, ...wkPts.map(p => p.y));
     yMax = Math.max(yMax, ...wkPts.map(p => p.y));
   }
+  const rng = yMax - yMin || 10;
+  const yP  = val => pad.top + cH - ((val - yMin) / rng) * cH;
 
-  const rng  = yMax - yMin || 10;
-  const xP = i => sorted.length === 1
-    ? pad.left + cW / 2
-    : pad.left + (i / (sorted.length - 1)) * cW;
-  const yP = val => pad.top + cH - ((val - yMin) / rng) * cH;
-
-  // Grid
+  // ── Grid ────────────────────────────────────────────────────────────────
   for (let i = 0; i <= 4; i++) {
-    const v = yMin + (rng/4)*i, y = yP(v);
+    const v = yMin + (rng / 4) * i, y = yP(v);
     ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W-pad.right, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
     ctx.fillStyle = '#6b6560'; ctx.font = "10px 'DM Mono',monospace"; ctx.textAlign = 'right';
-    ctx.fillText(v.toFixed(1), pad.left-6, y+3);
+    ctx.fillText(v.toFixed(1), pad.left - 6, y + 3);
   }
 
-  // Linear trendline through all raw data (dashed, green/red)
+  // ── Raw linear trendline (dashed) ────────────────────────────────────────
   if (reg && sorted.length >= 2) {
     const { slope, intercept, pts } = reg;
-    const tyStart = intercept;
-    const tyEnd   = slope * pts[pts.length - 1].x + intercept;
-    const tColor  = Math.abs(slope) < 0.005 ? '#6b6560' : slope > 0 ? '#e05c5c' : '#5ccc8a';
-
+    const tColor = Math.abs(slope) < 0.005 ? '#6b6560' : slope > 0 ? '#e05c5c' : '#5ccc8a';
     ctx.save();
     ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.moveTo(xP(0), yP(tyStart));
-    ctx.lineTo(xP(sorted.length - 1), yP(tyEnd));
+    // reg pts[i].x is days from t0, same origin as dayXP
+    ctx.moveTo(dayXP(pts[0].x),              yP(intercept + slope * pts[0].x));
+    ctx.lineTo(dayXP(pts[pts.length-1].x),   yP(intercept + slope * pts[pts.length-1].x));
     ctx.strokeStyle = tColor;
     ctx.lineWidth = 1.5;
     ctx.globalAlpha = 0.75;
@@ -1551,24 +1556,19 @@ function drawChart(days) {
     ctx.restore();
   }
 
-  // Cleaned weekly estimates — dots + connecting line + OLS through weekly points
+  // ── Cleaned weekly estimates ─────────────────────────────────────────────
+  // wkPts[i].x is already days from the same t0 (first entry in sorted),
+  // so dayXP works directly.
   if (wkPts.length >= 1) {
-    const totalDays = sorted.length > 1
-      ? (new Date(sorted[sorted.length-1].ts) - new Date(sorted[0].ts)) / 86400000
-      : 1;
-    const wkXP = dayX => sorted.length === 1
-      ? pad.left + cW / 2
-      : pad.left + (dayX / totalDays) * cW;
-
-    // Smooth connecting line through weekly points
+    // Connecting curve
     if (wkPts.length >= 2) {
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(wkXP(wkPts[0].x), yP(wkPts[0].y));
+      ctx.moveTo(dayXP(wkPts[0].x), yP(wkPts[0].y));
       wkPts.forEach((p, i) => {
         if (!i) return;
-        const cpx = (wkXP(wkPts[i-1].x) + wkXP(p.x)) / 2;
-        ctx.bezierCurveTo(cpx, yP(wkPts[i-1].y), cpx, yP(p.y), wkXP(p.x), yP(p.y));
+        const cpx = (dayXP(wkPts[i-1].x) + dayXP(p.x)) / 2;
+        ctx.bezierCurveTo(cpx, yP(wkPts[i-1].y), cpx, yP(p.y), dayXP(p.x), yP(p.y));
       });
       ctx.strokeStyle = '#7eb8f7';
       ctx.lineWidth = 2;
@@ -1577,27 +1577,24 @@ function drawChart(days) {
       ctx.stroke();
       ctx.restore();
 
-      // Linear regression through the cleaned weekly points
-      const wkSorted = wkPts.map(p => ({
-        ts: new Date(new Date(sorted[0].ts).getTime() + p.x * 86400000).toISOString(),
+      // OLS through cleaned weekly points
+      // wkPts[i].x is days from overall t0, so build reg with same origin
+      const wkForReg = wkPts.map(p => ({
+        ts: new Date(t0Ms + p.x * MS_DAY).toISOString(),
         weight: p.y
       }));
-      const wkReg = linReg(wkSorted);
+      const wkReg = linReg(wkForReg);
       if (wkReg) {
         const { slope: ws, intercept: wi, pts: wp } = wkReg;
-        // Map wkReg x-space (days from first weekly pt) back to canvas
-        // wkPts[0].x is already days from overall t0, so wkReg intercept is at wkPts[0].x days
-        const wkT0dayX = wkPts[0].x;
-        const wkLastDayX = wkPts[wkPts.length - 1].x;
-        const tyWkStart = wi + ws * 0; // x=0 in wkReg = first weekly pt
-        const tyWkEnd   = wi + ws * wp[wp.length - 1].x;
-        const wkTColor  = Math.abs(ws) < 0.005 ? '#4a6a8a' : ws > 0 ? '#c06060' : '#4a8fcf';
-
+        // wp[i].x is days from wkForReg[0].ts = t0Ms + wkPts[0].x*MS_DAY
+        // so canvas x = dayXP(wkPts[0].x + wp[i].x)
+        const wkCanvasX = wpx => dayXP(wkPts[0].x + wpx);
+        const wkTColor = Math.abs(ws) < 0.005 ? '#4a6a8a' : ws > 0 ? '#c06060' : '#4a8fcf';
         ctx.save();
         ctx.setLineDash([6, 3]);
         ctx.beginPath();
-        ctx.moveTo(wkXP(wkT0dayX),    yP(tyWkStart));
-        ctx.lineTo(wkXP(wkLastDayX),  yP(tyWkEnd));
+        ctx.moveTo(wkCanvasX(wp[0].x),              yP(wi + ws * wp[0].x));
+        ctx.lineTo(wkCanvasX(wp[wp.length-1].x),    yP(wi + ws * wp[wp.length-1].x));
         ctx.strokeStyle = wkTColor;
         ctx.lineWidth = 1.5;
         ctx.globalAlpha = 0.85;
@@ -1606,30 +1603,42 @@ function drawChart(days) {
       }
     }
 
-    // Weekly dots (hollow-style, drawn on top)
+    // Hollow weekly dots
     wkPts.forEach(p => {
-      const cx = wkXP(p.x), cy = yP(p.y);
-      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2);
+      const cx = dayXP(p.x), cy = yP(p.y);
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2);
       ctx.fillStyle = '#0a0a0a'; ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2);
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
       ctx.fillStyle = '#7eb8f7'; ctx.fill();
     });
   }
 
-  // Dots — always render
-  sorted.forEach((e, i) => {
-    ctx.beginPath(); ctx.arc(xP(i), yP(e.weight), sorted.length === 1 ? 5 : 3, 0, Math.PI*2);
+  // ── Raw data dots ────────────────────────────────────────────────────────
+  sorted.forEach(e => {
+    ctx.beginPath();
+    ctx.arc(tsXP(e.ts), yP(e.weight), sorted.length === 1 ? 5 : 3, 0, Math.PI * 2);
     ctx.fillStyle = '#e8c547'; ctx.fill();
   });
 
-  // X-axis labels
-  const maxL = Math.min(sorted.length, 5);
-  const step = sorted.length === 1 ? 1 : Math.max(1, Math.floor((sorted.length-1)/(maxL-1)));
-  ctx.fillStyle = '#6b6560'; ctx.font = "9px 'DM Mono',monospace"; ctx.textAlign = 'center';
-  for (let i = 0; i < sorted.length; i += step)
-    ctx.fillText(sorted[i].ts.slice(5,10), xP(i), H-pad.bottom+16);
-  const last = sorted.length-1;
-  if (last % step !== 0) ctx.fillText(sorted[last].ts.slice(5,10), xP(last), H-pad.bottom+16);
+  // ── X-axis date labels ───────────────────────────────────────────────────
+  // Pick ~5 evenly-spaced dates across the time span rather than evenly-spaced indices
+  const labelCount = Math.min(sorted.length, 5);
+  const labelStep  = totalDays / (labelCount - 1 || 1);
+  const usedX = new Set();
+  for (let li = 0; li < labelCount; li++) {
+    const targetDay = li * labelStep;
+    // Find the entry whose timestamp is closest to this target day
+    let best = sorted[0], bestDist = Infinity;
+    sorted.forEach(e => {
+      const d = Math.abs((new Date(e.ts).getTime() - t0Ms) / MS_DAY - targetDay);
+      if (d < bestDist) { bestDist = d; best = e; }
+    });
+    const cx = Math.round(tsXP(best.ts));
+    if (usedX.has(cx)) continue;
+    usedX.add(cx);
+    ctx.fillStyle = '#6b6560'; ctx.font = "9px 'DM Mono',monospace"; ctx.textAlign = 'center';
+    ctx.fillText(best.ts.slice(5, 10), cx, H - pad.bottom + 16);
+  }
 }
 
 // ════════════════════════════════
